@@ -1,0 +1,26 @@
+name: Auto-Deploy to Hugging Face
+on:
+  push:
+    branches: [ "*" ] # Triggers on ANY branch (main, master, etc.)
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Force Push to Hugging Face
+        env:
+          # You ONLY need to add HF_TOKEN to your GitHub Secrets now
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config --global user.email "bot@github.com"
+          git config --global user.name "GitHub Action"
+          
+          # Adds your specific Space and forces it to accept all your GitHub files
+          git remote add space https://YENZ0X:$HF_TOKEN@huggingface.co/spaces/YENZ0X/discord-browser
+          git push --force space HEAD:main
