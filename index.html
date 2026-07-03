@@ -1,0 +1,319 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Web Browser</title>
+    <!-- Tailwind CSS for sleek, modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Phosphor Icons for standard browser buttons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        /* Custom scrollbar for a polished look */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        
+        .tab-active { background-color: #334155; border-top: 2px solid #6366f1; color: white; }
+        .tab-inactive { background-color: #0f172a; color: #94a3b8; }
+        .tab-inactive:hover { background-color: #1e293b; }
+        
+        /* Loading animation for the progress bar */
+        @keyframes loading {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(200%); }
+        }
+        .animate-loading { animation: loading 1.5s infinite linear; }
+    </style>
+</head>
+<body class="bg-black h-screen w-screen overflow-hidden flex flex-col font-sans text-white">
+
+    <!-- TOP WINDOW BAR & TABS -->
+    <div class="bg-slate-900 flex items-end px-2 pt-2 gap-1 border-b border-slate-700 select-none relative">
+        
+        <!-- Mac-style Window Controls (Aesthetic) -->
+        <div class="flex items-center gap-2 px-3 pb-3">
+            <div class="w-3 h-3 rounded-full bg-red-500 hover:bg-red-400 cursor-pointer"></div>
+            <div class="w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-400 cursor-pointer"></div>
+            <div class="w-3 h-3 rounded-full bg-green-500 hover:bg-green-400 cursor-pointer"></div>
+        </div>
+
+        <!-- Tabs Container -->
+        <div id="tabs-container" class="flex items-end gap-1 overflow-x-auto no-scrollbar max-w-[70%]">
+            <!-- Tabs injected via JS -->
+        </div>
+
+        <!-- Add Tab Button -->
+        <button onclick="createNewTab()" class="p-2 mb-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+            <i class="ph ph-plus font-bold"></i>
+        </button>
+    </div>
+
+    <!-- NAVIGATION TOOLBAR -->
+    <div class="bg-slate-800 p-2 flex items-center gap-3 border-b border-slate-700 shadow-md z-10">
+        
+        <!-- Navigation Buttons -->
+        <div class="flex items-center gap-1 text-slate-300">
+            <button onclick="goBack()" class="p-2 rounded-full hover:bg-slate-700 transition-colors" title="Back">
+                <i class="ph ph-arrow-left text-lg"></i>
+            </button>
+            <button onclick="goForward()" class="p-2 rounded-full hover:bg-slate-700 transition-colors" title="Forward">
+                <i class="ph ph-arrow-right text-lg"></i>
+            </button>
+            <button onclick="reloadTab()" class="p-2 rounded-full hover:bg-slate-700 transition-colors" title="Reload">
+                <i class="ph ph-arrows-clockwise text-lg"></i>
+            </button>
+            <button onclick="goHome()" class="p-2 rounded-full hover:bg-slate-700 transition-colors hidden sm:block" title="Home">
+                <i class="ph ph-house text-lg"></i>
+            </button>
+        </div>
+
+        <!-- Address Bar -->
+        <div class="flex-grow flex items-center bg-slate-900 rounded-full px-4 py-1.5 border border-slate-600 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition-all shadow-inner">
+            <i class="ph ph-lock-key text-slate-400 mr-2 text-sm"></i>
+            <input 
+                type="text" 
+                id="address-bar" 
+                class="w-full bg-transparent outline-none text-sm text-white placeholder-slate-500" 
+                placeholder="Search Google or type a URL"
+                onkeydown="handleEnter(event)">
+            <button onclick="loadAddress()" class="text-slate-400 hover:text-white ml-2">
+                <i class="ph ph-magnifying-glass"></i>
+            </button>
+        </div>
+
+        <!-- Extensions / Menu (Aesthetic) -->
+        <div class="flex items-center gap-1 text-slate-300">
+            <button class="p-2 rounded-full hover:bg-slate-700 transition-colors hidden sm:block">
+                <i class="ph ph-puzzle-piece text-lg"></i>
+            </button>
+            <button class="p-2 rounded-full hover:bg-slate-700 transition-colors">
+                <i class="ph ph-dots-three-vertical text-lg"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading Bar -->
+    <div id="loading-bar" class="w-full h-0.5 bg-slate-800 overflow-hidden hidden">
+        <div class="w-1/2 h-full bg-indigo-500 rounded-full animate-loading"></div>
+    </div>
+
+    <!-- BROWSER VIEWPORT (Iframes) -->
+    <div id="viewports" class="flex-grow bg-white relative w-full h-full">
+        <!-- Iframes injected via JS -->
+    </div>
+
+    <script>
+        // Use a free open-source CORS proxy to bypass "X-Frame-Options: DENY" blocks
+        // In a production Discord environment, you'd replace this with an Ultraviolet backend.
+        const PROXY_URL = "https://corsproxy.io/?"; 
+        const DEFAULT_HOME = "https://www.google.com/search?igu=1"; // Google allows iframing if igu=1 is appended!
+        
+        let tabs = [];
+        let activeTabId = null;
+        let tabCounter = 0;
+
+        // --- Core Browser Logic ---
+
+        function initBrowser() {
+            createNewTab(DEFAULT_HOME);
+        }
+
+        function createNewTab(url = DEFAULT_HOME) {
+            tabCounter++;
+            const tabId = `tab-${tabCounter}`;
+            
+            const newTab = {
+                id: tabId,
+                url: url,
+                title: "New Tab"
+            };
+            
+            tabs.push(newTab);
+            
+            // Create the iframe for this tab
+            const iframe = document.createElement('iframe');
+            iframe.id = `iframe-${tabId}`;
+            iframe.className = "w-full h-full border-none absolute top-0 left-0 hidden bg-white";
+            
+            // Listen for load events to stop the loading bar
+            iframe.onload = () => {
+                document.getElementById('loading-bar').classList.add('hidden');
+            };
+
+            document.getElementById('viewports').appendChild(iframe);
+            
+            switchTab(tabId);
+            if (url) navigate(url);
+        }
+
+        function switchTab(tabId) {
+            activeTabId = tabId;
+            
+            // Update UI for Tabs
+            renderTabs();
+            
+            // Hide all iframes, show active
+            tabs.forEach(tab => {
+                const frame = document.getElementById(`iframe-${tab.id}`);
+                if (tab.id === activeTabId) {
+                    frame.classList.remove('hidden');
+                    document.getElementById('address-bar').value = formatDisplayUrl(tab.url);
+                } else {
+                    frame.classList.add('hidden');
+                }
+            });
+        }
+
+        function closeTab(event, tabId) {
+            event.stopPropagation(); // Prevent switching to the tab when clicking 'X'
+            
+            if (tabs.length === 1) {
+                // If closing last tab, just reset it
+                navigate(DEFAULT_HOME);
+                return;
+            }
+
+            const tabIndex = tabs.findIndex(t => t.id === tabId);
+            tabs = tabs.filter(t => t.id !== tabId);
+            
+            // Remove the iframe from DOM
+            const frame = document.getElementById(`iframe-${tabId}`);
+            if (frame) frame.remove();
+
+            // Switch to a new tab if we closed the active one
+            if (activeTabId === tabId) {
+                const newIndex = tabIndex > 0 ? tabIndex - 1 : 0;
+                switchTab(tabs[newIndex].id);
+            } else {
+                renderTabs();
+            }
+        }
+
+        function renderTabs() {
+            const container = document.getElementById('tabs-container');
+            container.innerHTML = '';
+
+            tabs.forEach(tab => {
+                const isActive = tab.id === activeTabId;
+                const tabClass = isActive ? 'tab-active' : 'tab-inactive';
+                
+                const tabEl = document.createElement('div');
+                tabEl.className = `${tabClass} flex items-center gap-2 px-4 py-2 min-w-[140px] max-w-[200px] rounded-t-lg text-sm cursor-pointer border-r border-l border-slate-700/50 group`;
+                tabEl.onclick = () => switchTab(tab.id);
+                
+                tabEl.innerHTML = `
+                    <div class="flex-grow truncate select-none flex items-center gap-2">
+                        <i class="ph ph-globe text-slate-400"></i>
+                        ${tab.title}
+                    </div>
+                    <div class="w-5 h-5 rounded-full hover:bg-slate-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? 'opacity-100' : ''}" onclick="closeTab(event, '${tab.id}')">
+                        <i class="ph ph-x text-xs"></i>
+                    </div>
+                `;
+                container.appendChild(tabEl);
+            });
+        }
+
+        // --- Navigation Logic ---
+
+        function handleEnter(e) {
+            if (e.key === 'Enter') {
+                loadAddress();
+            }
+        }
+
+        function loadAddress() {
+            let input = document.getElementById('address-bar').value.trim();
+            if (!input) return;
+            navigate(input);
+        }
+
+        function navigate(input) {
+            // Show loading bar
+            document.getElementById('loading-bar').classList.remove('hidden');
+
+            let targetUrl = input;
+            let proxyUrl = "";
+
+            // Check if it's a search query or a direct URL
+            if (!input.includes('.') || input.includes(' ')) {
+                // It's a search query
+                targetUrl = `https://www.google.com/search?q=${encodeURIComponent(input)}&igu=1`;
+                proxyUrl = targetUrl; // The igu=1 trick bypasses iframe blocks for Google
+            } else {
+                // It's a URL. Ensure http/https
+                if (!input.startsWith('http://') && !input.startsWith('https://')) {
+                    targetUrl = `https://${input}`;
+                }
+                
+                // If not using the Google trick, wrap it in the CORS proxy so it doesn't get blocked
+                if(!targetUrl.includes('google.com/search?igu=1')) {
+                     proxyUrl = PROXY_URL + encodeURIComponent(targetUrl);
+                } else {
+                     proxyUrl = targetUrl;
+                }
+            }
+
+            // Update state
+            const activeTab = tabs.find(t => t.id === activeTabId);
+            activeTab.url = targetUrl;
+            
+            // Try to extract a clean title from the URL for the tab
+            try {
+                const domain = new URL(targetUrl).hostname.replace('www.', '');
+                activeTab.title = domain || "Web Page";
+            } catch (e) {
+                activeTab.title = input;
+            }
+
+            // Update UI and Iframe
+            renderTabs();
+            document.getElementById('address-bar').value = targetUrl;
+            document.getElementById(`iframe-${activeTabId}`).src = proxyUrl;
+            
+            // Failsafe: hide loading bar after 5 seconds just in case iframe doesn't fire load event
+            setTimeout(() => {
+                document.getElementById('loading-bar').classList.add('hidden');
+            }, 5000);
+        }
+
+        function formatDisplayUrl(url) {
+            if (!url) return "";
+            if (url.includes('google.com/search?igu=1')) return "Google Search";
+            return url;
+        }
+
+        // --- Toolbar Buttons ---
+        function goBack() {
+            // Because iframes are restricted by cross-origin policies, native history API inside the iframe is blocked.
+            // In a full node.js proxy setup, this would be managed server-side.
+            console.log("Back triggered"); 
+        }
+
+        function goForward() {
+            console.log("Forward triggered");
+        }
+
+        function reloadTab() {
+            const activeTab = tabs.find(t => t.id === activeTabId);
+            if (activeTab && activeTab.url) {
+                navigate(activeTab.url);
+            }
+        }
+
+        function goHome() {
+            navigate(DEFAULT_HOME);
+        }
+
+        // Start the browser
+        initBrowser();
+
+    </script>
+</body>
+</html>
+
+
+```
